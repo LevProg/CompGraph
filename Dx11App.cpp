@@ -1,8 +1,145 @@
 #include "Dx11App.h"
 #include <dxgi.h>
+#include <d3dcompiler.h>
+#include <cassert>
+#include <vector>
+#include <windows.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "dxguid.lib")
+
+static HRESULT SetResourceName(ID3D11DeviceChild* pResource, const std::string& name)
+{
+    return pResource->SetPrivateData(WKPDID_D3DDebugObjectName,
+        (UINT)name.length(), name.c_str());
+}
+
+struct Vertex {
+    float x, y, z;
+    unsigned char r, g, b, a;
+};
+
+static const Vertex Vertices[] = {
+    {-0.5f, -0.5f, 0.0f,  255, 0,   0,   255},
+    { 0.5f, -0.5f, 0.0f,  0,   255, 0,   255},
+    { 0.0f,  0.5f, 0.0f,  0,   0,   255, 255}
+};
+
+static const unsigned short Indices[] = { 0, 2, 1 };
+
+bool Dx11App::CompileShader(const std::wstring& path, const std::string& entryPoint,
+                             const std::string& target, ID3DBlob** ppCode)
+{
+    FILE* pFile = nullptr;
+    _wfopen_s(&pFile, path.c_str(), L"rb");
+    if (!pFile)
+        return false;
+
+    fseek(pFile, 0, SEEK_END);
+    long sz = ftell(pFile);
+    fseek(pFile, 0, SEEK_SET);
+    std::vector<char> src(sz);
+    fread(src.data(), 1, sz, pFile);
+    fclose(pFile);
+
+    UINT flags = 0;
+#ifdef _DEBUG
+    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+    ID3DBlob* pErrMsg = nullptr;
+    HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr,
+        entryPoint.c_str(), target.c_str(), flags, 0, ppCode, &pErrMsg);
+
+    if (FAILED(hr) && pErrMsg)
+        OutputDebugStringA((const char*)pErrMsg->GetBufferPointer());
+
+    if (pErrMsg)
+        pErrMsg->Release();
+
+    return SUCCEEDED(hr);
+}
+
+bool Dx11App::InitTriangle()
+{
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(Vertices);
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+        D3D11_SUBRESOURCE_DATA data = {};
+        data.pSysMem = Vertices;
+
+        if (FAILED(m_device->CreateBuffer(&desc, &data, m_vertexBuffer.GetAddressOf())))
+            return false;
+        SetResourceName(m_vertexBuffer.Get(), "VertexBuffer");
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(Indices);
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+
+        D3D11_SUBRESOURCE_DATA data = {};
+        data.pSysMem = Indices;
+
+        if (FAILED(m_device->CreateBuffer(&desc, &data, m_indexBuffer.GetAddressOf())))
+            return false;
+        SetResourceName(m_indexBuffer.Get(), "IndexBuffer");
+    }
+
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
+
+    ID3DBlob* pVSCode = nullptr;
+    if (!CompileShader(dir + L"triangle.vs", "vs", "vs_5_0", &pVSCode))
+        return false;
+
+    if (FAILED(m_device->CreateVertexShader(pVSCode->GetBufferPointer(),
+        pVSCode->GetBufferSize(), nullptr, m_vertexShader.GetAddressOf())))
+    {
+        pVSCode->Release();
+        return false;
+    }
+    SetResourceName(m_vertexShader.Get(), "VertexShader");
+
+    static const D3D11_INPUT_ELEMENT_DESC InputDesc[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM,  0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+
+    if (FAILED(m_device->CreateInputLayout(InputDesc, 2,
+        pVSCode->GetBufferPointer(), pVSCode->GetBufferSize(),
+        m_inputLayout.GetAddressOf())))
+    {
+        pVSCode->Release();
+        return false;
+    }
+    SetResourceName(m_inputLayout.Get(), "InputLayout");
+    pVSCode->Release();
+
+    ID3DBlob* pPSCode = nullptr;
+    if (!CompileShader(dir + L"triangle.ps", "ps", "ps_5_0", &pPSCode))
+        return false;
+
+    if (FAILED(m_device->CreatePixelShader(pPSCode->GetBufferPointer(),
+        pPSCode->GetBufferSize(), nullptr, m_pixelShader.GetAddressOf())))
+    {
+        pPSCode->Release();
+        return false;
+    }
+    SetResourceName(m_pixelShader.Get(), "PixelShader");
+    pPSCode->Release();
+
+    return true;
+}
+
 
 bool Dx11App::Init(HWND hwnd, int width, int height)
 {
@@ -43,6 +180,9 @@ bool Dx11App::Init(HWND hwnd, int width, int height)
     CreateRenderTarget();
     OnResize(width, height);
 
+    if (!InitTriangle())
+        return false;
+
     return true;
 }
 
@@ -79,15 +219,42 @@ void Dx11App::OnResize(int width, int height)
 
 void Dx11App::Render()
 {
-    const float clearColor[4] = { 0.5f, 1.0f, 0.5f, 1.0f };
+    m_context->ClearState();
 
-    m_context->OMSetRenderTargets(1, m_rtv.GetAddressOf(), nullptr);
+    ID3D11RenderTargetView* views[] = { m_rtv.Get() };
+    m_context->OMSetRenderTargets(1, views, nullptr);
+
+    const float clearColor[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
     m_context->ClearRenderTargetView(m_rtv.Get(), clearColor);
+
+    m_context->RSSetViewports(1, &m_viewport);
+
+    D3D11_RECT rect = { 0, 0, (LONG)m_viewport.Width, (LONG)m_viewport.Height };
+    m_context->RSSetScissorRects(1, &rect);
+
+    // Draw triangle
+    m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+
+    ID3D11Buffer* vertexBuffers[] = { m_vertexBuffer.Get() };
+    UINT strides[] = { sizeof(Vertex) };
+    UINT offsets[] = { 0 };
+    m_context->IASetVertexBuffers(0, 1, vertexBuffers, strides, offsets);
+    m_context->IASetInputLayout(m_inputLayout.Get());
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
+    m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+    m_context->DrawIndexed(3, 0, 0);
+
     m_swapChain->Present(1, 0);
 }
 
 void Dx11App::Cleanup()
 {
+    m_inputLayout.Reset();
+    m_pixelShader.Reset();
+    m_vertexShader.Reset();
+    m_indexBuffer.Reset();
+    m_vertexBuffer.Reset();
     m_rtv.Reset();
     m_swapChain.Reset();
     m_context.Reset();
