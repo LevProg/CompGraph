@@ -134,6 +134,16 @@
   <ItemGroup>
     <ClInclude Include="Dx11App.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="triangle.vs" />
+    <None Include="triangle.ps" />
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>xcopy /Y "$(ProjectDir)triangle.vs" "$(OutDir)"
+xcopy /Y "$(ProjectDir)triangle.ps" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
