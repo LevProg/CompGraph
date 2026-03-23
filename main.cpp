@@ -9,6 +9,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
+    case WM_KEYDOWN:
+        g_app.OnKeyDown(wParam);
+        return 0;
+
     case WM_SIZE:
         g_width = LOWORD(lParam);
         g_height = HIWORD(lParam);
