@@ -137,11 +137,13 @@
   <ItemGroup>
     <None Include="triangle.vs" />
     <None Include="triangle.ps" />
+    <None Include="cube.vs" />
+    <None Include="cube.ps" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(ProjectDir)triangle.vs" "$(OutDir)"
-xcopy /Y "$(ProjectDir)triangle.ps" "$(OutDir)"</Command>
+      <Command>xcopy /Y "$(ProjectDir)cube.vs" "$(OutDir)"
+xcopy /Y "$(ProjectDir)cube.ps" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
