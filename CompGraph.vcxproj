@@ -139,11 +139,16 @@
     <None Include="triangle.ps" />
     <None Include="cube.vs" />
     <None Include="cube.ps" />
+    <None Include="skybox.vs" />
+    <None Include="skybox.ps" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <PostBuildEvent>
       <Command>xcopy /Y "$(ProjectDir)cube.vs" "$(OutDir)"
-xcopy /Y "$(ProjectDir)cube.ps" "$(OutDir)"</Command>
+xcopy /Y "$(ProjectDir)cube.ps" "$(OutDir)"
+xcopy /Y "$(ProjectDir)skybox.vs" "$(OutDir)"
+xcopy /Y "$(ProjectDir)skybox.ps" "$(OutDir)"
+xcopy /Y "$(ProjectDir)*.dds" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
