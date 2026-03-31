@@ -174,6 +174,17 @@ static const UINT16 CubeIndices[36] = {
     20, 22, 21, 20, 23, 22
 };
 
+static const SkyboxVertex PlaneVertices[4] = {
+    {-1.0f, -1.0f, 0.0f},
+    { 1.0f, -1.0f, 0.0f},
+    { 1.0f,  1.0f, 0.0f},
+    {-1.0f,  1.0f, 0.0f},
+};
+
+static const UINT16 PlaneIndices[6] = {
+    0, 2, 1, 0, 3, 2
+};
+
 bool Dx11App::CompileShader(const std::wstring& path, const std::string& entryPoint,
                              const std::string& target, ID3DBlob** ppCode)
 {
@@ -246,6 +257,17 @@ bool Dx11App::InitGeometry()
         if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBuffer.GetAddressOf())))
             return false;
         SetResourceName(m_geomBuffer.Get(), "GeomBuffer");
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(GeomBuffer);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBuffer2.GetAddressOf())))
+            return false;
+        SetResourceName(m_geomBuffer2.Get(), "GeomBuffer2");
     }
 
     wchar_t exePath[MAX_PATH];
@@ -524,9 +546,115 @@ bool Dx11App::InitSkybox()
         D3D11_DEPTH_STENCIL_DESC dsDesc = {};
         dsDesc.DepthEnable = TRUE;
         dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+        dsDesc.DepthFunc = D3D11_COMPARISON_GREATER_EQUAL;
 
         if (FAILED(m_device->CreateDepthStencilState(&dsDesc, m_skyboxDSS.GetAddressOf())))
+            return false;
+    }
+
+    return true;
+}
+
+bool Dx11App::InitTransparent()
+{
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(PlaneVertices);
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        D3D11_SUBRESOURCE_DATA data = {};
+        data.pSysMem = PlaneVertices;
+        if (FAILED(m_device->CreateBuffer(&desc, &data, m_transVB.GetAddressOf())))
+            return false;
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(PlaneIndices);
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+        D3D11_SUBRESOURCE_DATA data = {};
+        data.pSysMem = PlaneIndices;
+        if (FAILED(m_device->CreateBuffer(&desc, &data, m_transIB.GetAddressOf())))
+            return false;
+    }
+
+    for (int i = 0; i < 2; i++) {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(TransGeomBuffer);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_transGeomBuffer[i].GetAddressOf())))
+            return false;
+    }
+
+    ID3DBlob* pVSCode = nullptr;
+    if (!CompileShader(dir + L"transparent.vs", "vs", "vs_5_0", &pVSCode))
+        return false;
+
+    if (FAILED(m_device->CreateVertexShader(pVSCode->GetBufferPointer(),
+        pVSCode->GetBufferSize(), nullptr, m_transVS.GetAddressOf())))
+    {
+        pVSCode->Release();
+        return false;
+    }
+
+    static const D3D11_INPUT_ELEMENT_DESC TransInputDesc[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+
+    if (FAILED(m_device->CreateInputLayout(TransInputDesc, 1,
+        pVSCode->GetBufferPointer(), pVSCode->GetBufferSize(),
+        m_transInputLayout.GetAddressOf())))
+    {
+        pVSCode->Release();
+        return false;
+    }
+    pVSCode->Release();
+
+    ID3DBlob* pPSCode = nullptr;
+    if (!CompileShader(dir + L"transparent.ps", "ps", "ps_5_0", &pPSCode))
+        return false;
+
+    if (FAILED(m_device->CreatePixelShader(pPSCode->GetBufferPointer(),
+        pPSCode->GetBufferSize(), nullptr, m_transPS.GetAddressOf())))
+    {
+        pPSCode->Release();
+        return false;
+    }
+    pPSCode->Release();
+
+    {
+        D3D11_DEPTH_STENCIL_DESC dsDesc = {};
+        dsDesc.DepthEnable = TRUE;
+        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        dsDesc.DepthFunc = D3D11_COMPARISON_GREATER;
+        dsDesc.StencilEnable = FALSE;
+        if (FAILED(m_device->CreateDepthStencilState(&dsDesc, m_transDepthState.GetAddressOf())))
+            return false;
+    }
+
+    {
+        D3D11_BLEND_DESC desc = {};
+        desc.AlphaToCoverageEnable = FALSE;
+        desc.IndependentBlendEnable = FALSE;
+        desc.RenderTarget[0].BlendEnable = TRUE;
+        desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+        desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+        desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+        desc.RenderTarget[0].RenderTargetWriteMask =
+            D3D11_COLOR_WRITE_ENABLE_RED |
+            D3D11_COLOR_WRITE_ENABLE_GREEN |
+            D3D11_COLOR_WRITE_ENABLE_BLUE;
+        desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+        desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+        if (FAILED(m_device->CreateBlendState(&desc, m_transBlendState.GetAddressOf())))
             return false;
     }
 
@@ -621,6 +749,19 @@ bool Dx11App::Init(HWND hwnd, int width, int height)
     if (!InitSkybox())
         return false;
 
+    {
+        D3D11_DEPTH_STENCIL_DESC dsDesc = {};
+        dsDesc.DepthEnable = TRUE;
+        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+        dsDesc.DepthFunc = D3D11_COMPARISON_GREATER;
+        dsDesc.StencilEnable = FALSE;
+        if (FAILED(m_device->CreateDepthStencilState(&dsDesc, m_opaqueDepthState.GetAddressOf())))
+            return false;
+    }
+
+    if (!InitTransparent())
+        return false;
+
     return true;
 }
 
@@ -637,7 +778,7 @@ void Dx11App::CreateRenderTarget()
         depthDesc.Height = m_height;
         depthDesc.MipLevels = 1;
         depthDesc.ArraySize = 1;
-        depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        depthDesc.Format = DXGI_FORMAT_D32_FLOAT;
         depthDesc.SampleDesc.Count = 1;
         depthDesc.Usage = D3D11_USAGE_DEFAULT;
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -703,13 +844,25 @@ void Dx11App::Render()
     float n = 0.1f, f = 100.0f;
     float fov = DirectX::XM_PI / 3.0f;
     float aspect = (float)m_width / (float)m_height;
-    DirectX::XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(fov, aspect, n, f);
+    DirectX::XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(fov, aspect, f, n);
     DirectX::XMMATRIX vpMatrix = DirectX::XMMatrixMultiply(v, p);
 
     {
         GeomBuffer gb;
         gb.model = DirectX::XMMatrixRotationY(elapsed * DirectX::XM_PI * 0.5f);
         m_context->UpdateSubresource(m_geomBuffer.Get(), 0, nullptr, &gb, 0, 0);
+    }
+
+    {
+        GeomBuffer gb;
+        gb.model = DirectX::XMMatrixMultiply(
+            DirectX::XMMatrixScaling(0.5f, 0.5f, 0.5f),
+            DirectX::XMMatrixMultiply(
+                DirectX::XMMatrixRotationY(-elapsed * DirectX::XM_PI * 0.3f),
+                DirectX::XMMatrixTranslation(2.0f, 0.5f, 0.0f)
+            )
+        );
+        m_context->UpdateSubresource(m_geomBuffer2.Get(), 0, nullptr, &gb, 0, 0);
     }
 
     {
@@ -741,13 +894,40 @@ void Dx11App::Render()
 
     const float clearColor[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
     m_context->ClearRenderTargetView(m_rtv.Get(), clearColor);
-    m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+    m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
 
     m_context->RSSetViewports(1, &m_viewport);
     m_context->RSSetState(m_rasterizerState.Get());
 
     ID3D11SamplerState* samplers[] = { m_sampler.Get() };
 
+    // Opaque pass
+    {
+        m_context->OMSetDepthStencilState(m_opaqueDepthState.Get(), 0);
+        m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+        ID3D11Buffer* vbs[] = { m_vertexBuffer.Get() };
+        UINT strides[] = { sizeof(TextureVertex) };
+        UINT offsets[] = { 0 };
+        m_context->IASetVertexBuffers(0, 1, vbs, strides, offsets);
+        m_context->IASetInputLayout(m_inputLayout.Get());
+        m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
+        m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+
+        m_context->PSSetSamplers(0, 1, samplers);
+        ID3D11ShaderResourceView* cubeSRVs[] = { m_textureView.Get() };
+        m_context->PSSetShaderResources(0, 1, cubeSRVs);
+
+        ID3D11Buffer* cubeCBs1[] = { m_geomBuffer.Get(), m_sceneBuffer.Get() };
+        m_context->VSSetConstantBuffers(0, 2, cubeCBs1);
+        m_context->DrawIndexed(36, 0, 0);
+
+        ID3D11Buffer* cubeCBs2[] = { m_geomBuffer2.Get(), m_sceneBuffer.Get() };
+        m_context->VSSetConstantBuffers(0, 2, cubeCBs2);
+        m_context->DrawIndexed(36, 0, 0);
+    }
+
+    // Skybox pass
     {
         m_context->OMSetDepthStencilState(m_skyboxDSS.Get(), 0);
         m_context->IASetIndexBuffer(m_skyboxIB.Get(), DXGI_FORMAT_R16_UINT, 0);
@@ -770,26 +950,70 @@ void Dx11App::Render()
         m_context->DrawIndexed(m_skyboxIndexCount, 0, 0);
     }
 
+    // Transparent pass
     {
-        m_context->OMSetDepthStencilState(nullptr, 0);
-        m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
-        ID3D11Buffer* vbs[] = { m_vertexBuffer.Get() };
-        UINT strides[] = { sizeof(TextureVertex) };
+        DirectX::XMFLOAT4 transColors[2] = {
+            { 1.0f, 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, 1.0f, 1.0f }
+        };
+        DirectX::XMMATRIX transModels[2] = {
+            DirectX::XMMatrixMultiply(
+                DirectX::XMMatrixRotationY(DirectX::XM_PI / 4.0f),
+                DirectX::XMMatrixTranslation(0.5f, 0.0f, -0.5f)),
+            DirectX::XMMatrixMultiply(
+                DirectX::XMMatrixRotationY(-DirectX::XM_PI / 4.0f),
+                DirectX::XMMatrixTranslation(-0.5f, 0.0f, 0.5f))
+        };
+
+        float maxDists[2] = {};
+        for (int i = 0; i < 2; i++) {
+            for (int c = 0; c < 4; c++) {
+                DirectX::XMVECTOR corner = DirectX::XMVectorSet(
+                    PlaneVertices[c].x, PlaneVertices[c].y, PlaneVertices[c].z, 1.0f);
+                DirectX::XMVECTOR worldCorner = DirectX::XMVector4Transform(corner, transModels[i]);
+                DirectX::XMVECTOR diff = DirectX::XMVectorSubtract(worldCorner, eye);
+                float d = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(diff));
+                if (d > maxDists[i]) maxDists[i] = d;
+            }
+        }
+
+        int order[2] = { 0, 1 };
+        if (maxDists[0] < maxDists[1]) {
+            order[0] = 1;
+            order[1] = 0;
+        }
+
+        for (int o = 0; o < 2; o++) {
+            int i = order[o];
+            TransGeomBuffer tgb;
+            tgb.model = transModels[i];
+            tgb.color = transColors[i];
+            m_context->UpdateSubresource(m_transGeomBuffer[i].Get(), 0, nullptr, &tgb, 0, 0);
+        }
+
+        m_context->OMSetDepthStencilState(m_transDepthState.Get(), 0);
+        m_context->OMSetBlendState(m_transBlendState.Get(), nullptr, 0xFFFFFFFF);
+
+        m_context->IASetIndexBuffer(m_transIB.Get(), DXGI_FORMAT_R16_UINT, 0);
+        ID3D11Buffer* vbs[] = { m_transVB.Get() };
+        UINT strides[] = { sizeof(SkyboxVertex) };
         UINT offsets[] = { 0 };
         m_context->IASetVertexBuffers(0, 1, vbs, strides, offsets);
-        m_context->IASetInputLayout(m_inputLayout.Get());
+        m_context->IASetInputLayout(m_transInputLayout.Get());
         m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
-        m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+        m_context->VSSetShader(m_transVS.Get(), nullptr, 0);
+        m_context->PSSetShader(m_transPS.Get(), nullptr, 0);
 
-        ID3D11Buffer* cubeCBs[] = { m_geomBuffer.Get(), m_sceneBuffer.Get() };
-        m_context->VSSetConstantBuffers(0, 2, cubeCBs);
+        for (int o = 0; o < 2; o++) {
+            int i = order[o];
+            ID3D11Buffer* transCBs[] = { m_transGeomBuffer[i].Get(), m_sceneBuffer.Get() };
+            m_context->VSSetConstantBuffers(0, 2, transCBs);
+            ID3D11Buffer* psCBs[] = { m_transGeomBuffer[i].Get() };
+            m_context->PSSetConstantBuffers(0, 1, psCBs);
+            m_context->DrawIndexed(6, 0, 0);
+        }
 
-        m_context->PSSetSamplers(0, 1, samplers);
-        ID3D11ShaderResourceView* cubeSRVs[] = { m_textureView.Get() };
-        m_context->PSSetShaderResources(0, 1, cubeSRVs);
-
-        m_context->DrawIndexed(36, 0, 0);
+        m_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     }
 
     m_swapChain->Present(1, 0);
@@ -797,6 +1021,16 @@ void Dx11App::Render()
 
 void Dx11App::Cleanup()
 {
+    m_transBlendState.Reset();
+    m_transDepthState.Reset();
+    for (int i = 0; i < 2; i++) m_transGeomBuffer[i].Reset();
+    m_transInputLayout.Reset();
+    m_transPS.Reset();
+    m_transVS.Reset();
+    m_transIB.Reset();
+    m_transVB.Reset();
+    m_opaqueDepthState.Reset();
+    m_geomBuffer2.Reset();
     m_skyboxDSS.Reset();
     m_cubemapView.Reset();
     m_cubemapTexture.Reset();

@@ -148,6 +148,8 @@
 xcopy /Y "$(ProjectDir)cube.ps" "$(OutDir)"
 xcopy /Y "$(ProjectDir)skybox.vs" "$(OutDir)"
 xcopy /Y "$(ProjectDir)skybox.ps" "$(OutDir)"
+xcopy /Y "$(ProjectDir)transparent.vs" "$(OutDir)"
+xcopy /Y "$(ProjectDir)transparent.ps" "$(OutDir)"
 xcopy /Y "$(ProjectDir)*.dds" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>

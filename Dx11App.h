@@ -18,6 +18,11 @@ struct SkyboxGeomBuffer {
     DirectX::XMFLOAT4 size;
 };
 
+struct TransGeomBuffer {
+    DirectX::XMMATRIX model;
+    DirectX::XMFLOAT4 color;
+};
+
 class Dx11App
 {
 public:
@@ -33,6 +38,7 @@ private:
     void ReleaseRenderTarget();
     bool InitGeometry();
     bool InitSkybox();
+    bool InitTransparent();
     bool CompileShader(const std::wstring& path, const std::string& entryPoint,
                        const std::string& target, ID3DBlob** ppCode);
 
@@ -62,6 +68,18 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_cubemapTexture;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_cubemapView;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_skyboxDSS;
+
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBuffer2;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_opaqueDepthState;
+
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_transVB;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_transIB;
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_transVS;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_transPS;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> m_transInputLayout;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_transGeomBuffer[2];
+    Microsoft::WRL::ComPtr<ID3D11BlendState> m_transBlendState;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_transDepthState;
 
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_sceneBuffer;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> m_sampler;
