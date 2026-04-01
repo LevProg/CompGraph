@@ -4,13 +4,22 @@
 #include <DirectXMath.h>
 #include <string>
 
+struct Light {
+    DirectX::XMFLOAT4 pos;
+    DirectX::XMFLOAT4 color;
+};
+
 struct GeomBuffer {
     DirectX::XMMATRIX model;
+    DirectX::XMFLOAT4 shine;
 };
 
 struct SceneBuffer {
     DirectX::XMMATRIX vp;
     DirectX::XMFLOAT4 cameraPos;
+    DirectX::XMINT4 lightCount;
+    Light lights[10];
+    DirectX::XMFLOAT4 ambientColor;
 };
 
 struct SkyboxGeomBuffer {
@@ -58,6 +67,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_texture;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_textureView;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> m_normalMap;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_normalMapView;
 
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_skyboxVB;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_skyboxIB;

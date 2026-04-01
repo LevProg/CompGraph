@@ -131,6 +131,8 @@ static void FreeTextureData(TextureDesc& desc)
 
 struct TextureVertex {
     float x, y, z;
+    float tx, ty, tz;
+    float nx, ny, nz;
     float u, v;
 };
 
@@ -139,30 +141,36 @@ struct SkyboxVertex {
 };
 
 static const TextureVertex CubeVertices[24] = {
-    {-0.5f, -0.5f,  0.5f, 0, 1},
-    { 0.5f, -0.5f,  0.5f, 1, 1},
-    { 0.5f,  0.5f,  0.5f, 1, 0},
-    {-0.5f,  0.5f,  0.5f, 0, 0},
-    { 0.5f, -0.5f, -0.5f, 0, 1},
-    {-0.5f, -0.5f, -0.5f, 1, 1},
-    {-0.5f,  0.5f, -0.5f, 1, 0},
-    { 0.5f,  0.5f, -0.5f, 0, 0},
-    {-0.5f,  0.5f,  0.5f, 0, 1},
-    { 0.5f,  0.5f,  0.5f, 1, 1},
-    { 0.5f,  0.5f, -0.5f, 1, 0},
-    {-0.5f,  0.5f, -0.5f, 0, 0},
-    {-0.5f, -0.5f, -0.5f, 0, 1},
-    { 0.5f, -0.5f, -0.5f, 1, 1},
-    { 0.5f, -0.5f,  0.5f, 1, 0},
-    {-0.5f, -0.5f,  0.5f, 0, 0},
-    {-0.5f, -0.5f, -0.5f, 0, 1},
-    {-0.5f, -0.5f,  0.5f, 1, 1},
-    {-0.5f,  0.5f,  0.5f, 1, 0},
-    {-0.5f,  0.5f, -0.5f, 0, 0},
-    { 0.5f, -0.5f,  0.5f, 0, 1},
-    { 0.5f, -0.5f, -0.5f, 1, 1},
-    { 0.5f,  0.5f, -0.5f, 1, 0},
-    { 0.5f,  0.5f,  0.5f, 0, 0},
+    // Front face (+Z)
+    {-0.5f, -0.5f,  0.5f,  1,0,0,  0,0,1,  0, 1},
+    { 0.5f, -0.5f,  0.5f,  1,0,0,  0,0,1,  1, 1},
+    { 0.5f,  0.5f,  0.5f,  1,0,0,  0,0,1,  1, 0},
+    {-0.5f,  0.5f,  0.5f,  1,0,0,  0,0,1,  0, 0},
+    // Back face (-Z)
+    { 0.5f, -0.5f, -0.5f, -1,0,0,  0,0,-1,  0, 1},
+    {-0.5f, -0.5f, -0.5f, -1,0,0,  0,0,-1,  1, 1},
+    {-0.5f,  0.5f, -0.5f, -1,0,0,  0,0,-1,  1, 0},
+    { 0.5f,  0.5f, -0.5f, -1,0,0,  0,0,-1,  0, 0},
+    // Top face (+Y)
+    {-0.5f,  0.5f,  0.5f,  1,0,0,  0,1,0,  0, 1},
+    { 0.5f,  0.5f,  0.5f,  1,0,0,  0,1,0,  1, 1},
+    { 0.5f,  0.5f, -0.5f,  1,0,0,  0,1,0,  1, 0},
+    {-0.5f,  0.5f, -0.5f,  1,0,0,  0,1,0,  0, 0},
+    // Bottom face (-Y)
+    {-0.5f, -0.5f, -0.5f,  1,0,0,  0,-1,0,  0, 1},
+    { 0.5f, -0.5f, -0.5f,  1,0,0,  0,-1,0,  1, 1},
+    { 0.5f, -0.5f,  0.5f,  1,0,0,  0,-1,0,  1, 0},
+    {-0.5f, -0.5f,  0.5f,  1,0,0,  0,-1,0,  0, 0},
+    // Left face (-X)
+    {-0.5f, -0.5f, -0.5f,  0,0,1,  -1,0,0,  0, 1},
+    {-0.5f, -0.5f,  0.5f,  0,0,1,  -1,0,0,  1, 1},
+    {-0.5f,  0.5f,  0.5f,  0,0,1,  -1,0,0,  1, 0},
+    {-0.5f,  0.5f, -0.5f,  0,0,1,  -1,0,0,  0, 0},
+    // Right face (+X)
+    { 0.5f, -0.5f,  0.5f,  0,0,-1,  1,0,0,  0, 1},
+    { 0.5f, -0.5f, -0.5f,  0,0,-1,  1,0,0,  1, 1},
+    { 0.5f,  0.5f, -0.5f,  0,0,-1,  1,0,0,  1, 0},
+    { 0.5f,  0.5f,  0.5f,  0,0,-1,  1,0,0,  0, 0},
 };
 
 static const UINT16 CubeIndices[36] = {
@@ -276,7 +284,7 @@ bool Dx11App::InitGeometry()
     dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
 
     TextureDesc texDesc;
-    if (!LoadDDS((dir + L"Kitty.dds").c_str(), texDesc))
+    if (!LoadDDS((dir + L"Brick.dds").c_str(), texDesc))
         return false;
 
     DXGI_FORMAT textureFmt = texDesc.fmt;
@@ -331,6 +339,59 @@ bool Dx11App::InitGeometry()
             return false;
     }
 
+    {
+        TextureDesc nmDesc;
+        if (!LoadDDS((dir + L"BrickNM.dds").c_str(), nmDesc))
+            return false;
+
+        DXGI_FORMAT nmFmt = nmDesc.fmt;
+        UINT32 nmMips = nmDesc.mipmapsCount;
+        bool nmBC = (nmFmt == DXGI_FORMAT_BC1_UNORM || nmFmt == DXGI_FORMAT_BC2_UNORM || nmFmt == DXGI_FORMAT_BC3_UNORM);
+
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Format = nmFmt;
+        td.ArraySize = 1;
+        td.MipLevels = nmMips;
+        td.Usage = D3D11_USAGE_IMMUTABLE;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        td.SampleDesc.Count = 1;
+        td.Width = nmDesc.width;
+        td.Height = nmDesc.height;
+
+        std::vector<D3D11_SUBRESOURCE_DATA> subData(td.MipLevels);
+        const char* pSrc = reinterpret_cast<const char*>(nmDesc.pData);
+        UINT32 w = td.Width, h = td.Height;
+        for (UINT32 i = 0; i < td.MipLevels; i++) {
+            UINT32 pitch, sliceSize;
+            if (nmBC) {
+                UINT32 bw = DivUp(w, 4u);
+                UINT32 bh = DivUp(h, 4u);
+                pitch = bw * GetBytesPerBlock(td.Format);
+                sliceSize = pitch * bh;
+            } else {
+                pitch = w * 4;
+                sliceSize = pitch * h;
+            }
+            subData[i].pSysMem = pSrc;
+            subData[i].SysMemPitch = pitch;
+            subData[i].SysMemSlicePitch = 0;
+            pSrc += sliceSize;
+            w = (std::max)(1u, w / 2);
+            h = (std::max)(1u, h / 2);
+        }
+        if (FAILED(m_device->CreateTexture2D(&td, subData.data(), m_normalMap.GetAddressOf())))
+            return false;
+        FreeTextureData(nmDesc);
+
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = nmFmt;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = nmMips;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        if (FAILED(m_device->CreateShaderResourceView(m_normalMap.Get(), &srvDesc, m_normalMapView.GetAddressOf())))
+            return false;
+    }
+
     ID3DBlob* pVSCode = nullptr;
     if (!CompileShader(dir + L"cube.vs", "vs", "vs_5_0", &pVSCode))
         return false;
@@ -345,10 +406,12 @@ bool Dx11App::InitGeometry()
 
     static const D3D11_INPUT_ELEMENT_DESC InputDesc[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+        { "TANGENT",  0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 36, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
 
-    if (FAILED(m_device->CreateInputLayout(InputDesc, 2,
+    if (FAILED(m_device->CreateInputLayout(InputDesc, 4,
         pVSCode->GetBufferPointer(), pVSCode->GetBufferSize(),
         m_inputLayout.GetAddressOf())))
     {
@@ -849,20 +912,9 @@ void Dx11App::Render()
 
     {
         GeomBuffer gb;
-        gb.model = DirectX::XMMatrixRotationY(elapsed * DirectX::XM_PI * 0.5f);
+        gb.model = DirectX::XMMatrixRotationY(elapsed * DirectX::XM_PI * 0.15f);
+        gb.shine = DirectX::XMFLOAT4(32.0f, 0, 0, 0);
         m_context->UpdateSubresource(m_geomBuffer.Get(), 0, nullptr, &gb, 0, 0);
-    }
-
-    {
-        GeomBuffer gb;
-        gb.model = DirectX::XMMatrixMultiply(
-            DirectX::XMMatrixScaling(0.5f, 0.5f, 0.5f),
-            DirectX::XMMatrixMultiply(
-                DirectX::XMMatrixRotationY(-elapsed * DirectX::XM_PI * 0.3f),
-                DirectX::XMMatrixTranslation(2.0f, 0.5f, 0.0f)
-            )
-        );
-        m_context->UpdateSubresource(m_geomBuffer2.Get(), 0, nullptr, &gb, 0, 0);
     }
 
     {
@@ -872,6 +924,12 @@ void Dx11App::Render()
             SceneBuffer& sb = *reinterpret_cast<SceneBuffer*>(sub.pData);
             sb.vp = vpMatrix;
             sb.cameraPos = DirectX::XMFLOAT4(eyeX, eyeY, eyeZ, 1.0f);
+            sb.lightCount = DirectX::XMINT4(2, 0, 0, 0);
+            sb.lights[0].pos = DirectX::XMFLOAT4(0.6f, 0.6f, 0.6f, 0.0f);
+            sb.lights[0].color = DirectX::XMFLOAT4(2.0f, 2.0f, 1.6f, 0.0f);
+            sb.lights[1].pos = DirectX::XMFLOAT4(-0.6f, 0.4f, -0.4f, 0.0f);
+            sb.lights[1].color = DirectX::XMFLOAT4(1.0f, 1.0f, 2.0f, 0.0f);
+            sb.ambientColor = DirectX::XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f);
             m_context->Unmap(m_sceneBuffer.Get(), 0);
         }
     }
@@ -915,15 +973,12 @@ void Dx11App::Render()
         m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
 
         m_context->PSSetSamplers(0, 1, samplers);
-        ID3D11ShaderResourceView* cubeSRVs[] = { m_textureView.Get() };
-        m_context->PSSetShaderResources(0, 1, cubeSRVs);
+        ID3D11ShaderResourceView* cubeSRVs[] = { m_textureView.Get(), m_normalMapView.Get() };
+        m_context->PSSetShaderResources(0, 2, cubeSRVs);
 
         ID3D11Buffer* cubeCBs1[] = { m_geomBuffer.Get(), m_sceneBuffer.Get() };
         m_context->VSSetConstantBuffers(0, 2, cubeCBs1);
-        m_context->DrawIndexed(36, 0, 0);
-
-        ID3D11Buffer* cubeCBs2[] = { m_geomBuffer2.Get(), m_sceneBuffer.Get() };
-        m_context->VSSetConstantBuffers(0, 2, cubeCBs2);
+        m_context->PSSetConstantBuffers(0, 2, cubeCBs1);
         m_context->DrawIndexed(36, 0, 0);
     }
 
@@ -948,72 +1003,6 @@ void Dx11App::Render()
         m_context->PSSetShaderResources(0, 1, skyboxSRVs);
 
         m_context->DrawIndexed(m_skyboxIndexCount, 0, 0);
-    }
-
-    // Transparent pass
-    {
-        DirectX::XMFLOAT4 transColors[2] = {
-            { 1.0f, 0.0f, 0.0f, 1.0f },
-            { 0.0f, 0.0f, 1.0f, 1.0f }
-        };
-        DirectX::XMMATRIX transModels[2] = {
-            DirectX::XMMatrixMultiply(
-                DirectX::XMMatrixRotationY(DirectX::XM_PI / 4.0f),
-                DirectX::XMMatrixTranslation(0.5f, 0.0f, -0.5f)),
-            DirectX::XMMatrixMultiply(
-                DirectX::XMMatrixRotationY(-DirectX::XM_PI / 4.0f),
-                DirectX::XMMatrixTranslation(-0.5f, 0.0f, 0.5f))
-        };
-
-        float maxDists[2] = {};
-        for (int i = 0; i < 2; i++) {
-            for (int c = 0; c < 4; c++) {
-                DirectX::XMVECTOR corner = DirectX::XMVectorSet(
-                    PlaneVertices[c].x, PlaneVertices[c].y, PlaneVertices[c].z, 1.0f);
-                DirectX::XMVECTOR worldCorner = DirectX::XMVector4Transform(corner, transModels[i]);
-                DirectX::XMVECTOR diff = DirectX::XMVectorSubtract(worldCorner, eye);
-                float d = DirectX::XMVectorGetX(DirectX::XMVector3LengthSq(diff));
-                if (d > maxDists[i]) maxDists[i] = d;
-            }
-        }
-
-        int order[2] = { 0, 1 };
-        if (maxDists[0] < maxDists[1]) {
-            order[0] = 1;
-            order[1] = 0;
-        }
-
-        for (int o = 0; o < 2; o++) {
-            int i = order[o];
-            TransGeomBuffer tgb;
-            tgb.model = transModels[i];
-            tgb.color = transColors[i];
-            m_context->UpdateSubresource(m_transGeomBuffer[i].Get(), 0, nullptr, &tgb, 0, 0);
-        }
-
-        m_context->OMSetDepthStencilState(m_transDepthState.Get(), 0);
-        m_context->OMSetBlendState(m_transBlendState.Get(), nullptr, 0xFFFFFFFF);
-
-        m_context->IASetIndexBuffer(m_transIB.Get(), DXGI_FORMAT_R16_UINT, 0);
-        ID3D11Buffer* vbs[] = { m_transVB.Get() };
-        UINT strides[] = { sizeof(SkyboxVertex) };
-        UINT offsets[] = { 0 };
-        m_context->IASetVertexBuffers(0, 1, vbs, strides, offsets);
-        m_context->IASetInputLayout(m_transInputLayout.Get());
-        m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        m_context->VSSetShader(m_transVS.Get(), nullptr, 0);
-        m_context->PSSetShader(m_transPS.Get(), nullptr, 0);
-
-        for (int o = 0; o < 2; o++) {
-            int i = order[o];
-            ID3D11Buffer* transCBs[] = { m_transGeomBuffer[i].Get(), m_sceneBuffer.Get() };
-            m_context->VSSetConstantBuffers(0, 2, transCBs);
-            ID3D11Buffer* psCBs[] = { m_transGeomBuffer[i].Get() };
-            m_context->PSSetConstantBuffers(0, 1, psCBs);
-            m_context->DrawIndexed(6, 0, 0);
-        }
-
-        m_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     }
 
     m_swapChain->Present(1, 0);
@@ -1042,6 +1031,8 @@ void Dx11App::Cleanup()
     m_skyboxVB.Reset();
     m_textureView.Reset();
     m_texture.Reset();
+    m_normalMapView.Reset();
+    m_normalMap.Reset();
     m_sampler.Reset();
     m_rasterizerState.Reset();
     m_inputLayout.Reset();
