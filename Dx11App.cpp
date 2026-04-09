@@ -258,24 +258,24 @@ bool Dx11App::InitGeometry()
 
     {
         D3D11_BUFFER_DESC desc = {};
-        desc.ByteWidth = sizeof(GeomBuffer);
+        desc.ByteWidth = sizeof(GeomBufferInst) * MaxInst;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
-        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBuffer.GetAddressOf())))
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBufferInst.GetAddressOf())))
             return false;
-        SetResourceName(m_geomBuffer.Get(), "GeomBuffer");
+        SetResourceName(m_geomBufferInst.Get(), "GeomBufferInst");
     }
 
     {
         D3D11_BUFFER_DESC desc = {};
-        desc.ByteWidth = sizeof(GeomBuffer);
+        desc.ByteWidth = sizeof(VisId) * MaxInst;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
-        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBuffer2.GetAddressOf())))
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_geomBufferInstVis.GetAddressOf())))
             return false;
-        SetResourceName(m_geomBuffer2.Get(), "GeomBuffer2");
+        SetResourceName(m_geomBufferInstVis.Get(), "GeomBufferInstVis");
     }
 
     wchar_t exePath[MAX_PATH];
@@ -283,58 +283,69 @@ bool Dx11App::InitGeometry()
     std::wstring dir = exePath;
     dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
 
-    TextureDesc texDesc;
-    if (!LoadDDS((dir + L"Brick.dds").c_str(), texDesc))
+    TextureDesc texDescs[2];
+    if (!LoadDDS((dir + L"Brick.dds").c_str(), texDescs[0]))
+        return false;
+    if (!LoadDDS((dir + L"Kitty.dds").c_str(), texDescs[1]))
         return false;
 
-    DXGI_FORMAT textureFmt = texDesc.fmt;
-    UINT32 mipLevels = texDesc.mipmapsCount;
-    bool isBC = (texDesc.fmt == DXGI_FORMAT_BC1_UNORM || texDesc.fmt == DXGI_FORMAT_BC2_UNORM || texDesc.fmt == DXGI_FORMAT_BC3_UNORM);
+    DXGI_FORMAT textureFmt = texDescs[0].fmt;
+    UINT32 mipLevels = texDescs[0].mipmapsCount;
+    bool isBC = (textureFmt == DXGI_FORMAT_BC1_UNORM || textureFmt == DXGI_FORMAT_BC2_UNORM || textureFmt == DXGI_FORMAT_BC3_UNORM);
 
     {
         D3D11_TEXTURE2D_DESC td = {};
-        td.Format = texDesc.fmt;
-        td.ArraySize = 1;
-        td.MipLevels = texDesc.mipmapsCount;
+        td.Format = textureFmt;
+        td.ArraySize = 2;
+        td.MipLevels = mipLevels;
         td.Usage = D3D11_USAGE_IMMUTABLE;
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         td.SampleDesc.Count = 1;
-        td.Width = texDesc.width;
-        td.Height = texDesc.height;
+        td.Width = texDescs[0].width;
+        td.Height = texDescs[0].height;
 
-        std::vector<D3D11_SUBRESOURCE_DATA> subData(td.MipLevels);
-        const char* pSrc = reinterpret_cast<const char*>(texDesc.pData);
-        UINT32 w = td.Width, h = td.Height;
-        for (UINT32 i = 0; i < td.MipLevels; i++) {
-            UINT32 pitch;
-            UINT32 sliceSize;
-            if (isBC) {
-                UINT32 bw = DivUp(w, 4u);
-                UINT32 bh = DivUp(h, 4u);
-                pitch = bw * GetBytesPerBlock(td.Format);
-                sliceSize = pitch * bh;
-            } else {
-                pitch = w * 4;
-                sliceSize = pitch * h;
+        std::vector<D3D11_SUBRESOURCE_DATA> subData(td.MipLevels * 2);
+
+        for (UINT32 j = 0; j < 2; j++) {
+            const char* pSrc = reinterpret_cast<const char*>(texDescs[j].pData);
+            UINT32 w = td.Width, h = td.Height;
+            for (UINT32 i = 0; i < td.MipLevels; i++) {
+                UINT32 pitch, sliceSize;
+                if (isBC) {
+                    UINT32 bw = DivUp(w, 4u);
+                    UINT32 bh = DivUp(h, 4u);
+                    pitch = bw * GetBytesPerBlock(td.Format);
+                    sliceSize = pitch * bh;
+                } else {
+                    pitch = w * 4;
+                    sliceSize = pitch * h;
+                }
+                subData[j * td.MipLevels + i].pSysMem = pSrc;
+                subData[j * td.MipLevels + i].SysMemPitch = pitch;
+                subData[j * td.MipLevels + i].SysMemSlicePitch = 0;
+                pSrc += sliceSize;
+                w = (std::max)(1u, w / 2);
+                h = (std::max)(1u, h / 2);
             }
-            subData[i].pSysMem = pSrc;
-            subData[i].SysMemPitch = pitch;
-            subData[i].SysMemSlicePitch = 0;
-            pSrc += sliceSize;
-            w = (std::max)(1u, w / 2);
-            h = (std::max)(1u, h / 2);
         }
-        if (FAILED(m_device->CreateTexture2D(&td, subData.data(), m_texture.GetAddressOf())))
+
+        if (FAILED(m_device->CreateTexture2D(&td, subData.data(), m_texture.GetAddressOf()))) {
+            FreeTextureData(texDescs[0]);
+            FreeTextureData(texDescs[1]);
             return false;
-        FreeTextureData(texDesc);
+        }
+        FreeTextureData(texDescs[0]);
+        FreeTextureData(texDescs[1]);
     }
 
     {
         D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = textureFmt;
-        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = mipLevels;
-        srvDesc.Texture2D.MostDetailedMip = 0;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+        srvDesc.Texture2DArray.ArraySize = 2;
+        srvDesc.Texture2DArray.FirstArraySlice = 0;
+        srvDesc.Texture2DArray.MipLevels = mipLevels;
+        srvDesc.Texture2DArray.MostDetailedMip = 0;
         if (FAILED(m_device->CreateShaderResourceView(m_texture.Get(), &srvDesc, m_textureView.GetAddressOf())))
             return false;
     }
@@ -895,7 +906,7 @@ void Dx11App::Render()
     QueryPerformanceCounter(&now);
     float elapsed = (float)((double)(now.QuadPart - m_startTime.QuadPart) / m_freq.QuadPart);
 
-    float radius = 3.0f;
+    float radius = 20.0f;
     float eyeX = radius * sinf(m_cameraYaw) * cosf(m_cameraPitch);
     float eyeY = radius * sinf(m_cameraPitch);
     float eyeZ = -radius * cosf(m_cameraYaw) * cosf(m_cameraPitch);
@@ -910,12 +921,90 @@ void Dx11App::Render()
     DirectX::XMMATRIX p = DirectX::XMMatrixPerspectiveFovLH(fov, aspect, f, n);
     DirectX::XMMATRIX vpMatrix = DirectX::XMMatrixMultiply(v, p);
 
-    {
-        GeomBuffer gb;
-        gb.model = DirectX::XMMatrixRotationY(elapsed * DirectX::XM_PI * 0.15f);
-        gb.shine = DirectX::XMFLOAT4(32.0f, 0, 0, 0);
-        m_context->UpdateSubresource(m_geomBuffer.Get(), 0, nullptr, &gb, 0, 0);
+    static const int InstRows = 10;
+    static const int InstCols = 10;
+    static const int NumInst = InstRows * InstCols;
+    static const float Spacing = 2.5f;
+
+    GeomBufferInst instData[MaxInst];
+    DirectX::XMFLOAT3 bbMins[MaxInst];
+    DirectX::XMFLOAT3 bbMaxs[MaxInst];
+
+    for (int z = 0; z < InstRows; z++) {
+        for (int x = 0; x < InstCols; x++) {
+            int idx = z * InstCols + x;
+            float px = (x - (InstCols - 1) * 0.5f) * Spacing;
+            float pz = (z - (InstRows - 1) * 0.5f) * Spacing;
+            float py = 0.0f;
+
+            float speed = 0.5f + (idx % 5) * 0.3f;
+            float angle = elapsed * speed;
+            int texId = (x + z) % 2;
+            UINT hasNM = (texId == 0) ? 1u : 0u;
+            float hasNMF;
+            memcpy(&hasNMF, &hasNM, sizeof(float));
+            float shininess = (texId == 0) ? 32.0f : 16.0f;
+
+            DirectX::XMMATRIX rot = DirectX::XMMatrixRotationY(angle);
+            DirectX::XMMATRIX trans = DirectX::XMMatrixTranslation(px, py, pz);
+            DirectX::XMMATRIX model = DirectX::XMMatrixMultiply(rot, trans);
+
+            instData[idx].model = model;
+            instData[idx].norm = rot;
+            instData[idx].shineSpeedTexIdNM = DirectX::XMFLOAT4(shininess, speed, (float)texId, hasNMF);
+            instData[idx].posAngle = DirectX::XMFLOAT4(px, py, pz, angle);
+
+            float halfXZ = 0.71f;
+            float halfY = 0.5f;
+            bbMins[idx] = DirectX::XMFLOAT3(px - halfXZ, py - halfY, pz - halfXZ);
+            bbMaxs[idx] = DirectX::XMFLOAT3(px + halfXZ, py + halfY, pz + halfXZ);
+        }
     }
+
+    m_context->UpdateSubresource(m_geomBufferInst.Get(), 0, nullptr, instData, 0, 0);
+
+    DirectX::XMFLOAT4X4 vpF;
+    DirectX::XMStoreFloat4x4(&vpF, vpMatrix);
+    DirectX::XMFLOAT4 frustum[6];
+    // Left
+    frustum[0] = DirectX::XMFLOAT4(vpF._11 + vpF._14, vpF._21 + vpF._24, vpF._31 + vpF._34, vpF._41 + vpF._44);
+    // Right
+    frustum[1] = DirectX::XMFLOAT4(vpF._14 - vpF._11, vpF._24 - vpF._21, vpF._34 - vpF._31, vpF._44 - vpF._41);
+    // Bottom
+    frustum[2] = DirectX::XMFLOAT4(vpF._12 + vpF._14, vpF._22 + vpF._24, vpF._32 + vpF._34, vpF._42 + vpF._44);
+    // Top
+    frustum[3] = DirectX::XMFLOAT4(vpF._14 - vpF._12, vpF._24 - vpF._22, vpF._34 - vpF._32, vpF._44 - vpF._42);
+    // Near
+    frustum[4] = DirectX::XMFLOAT4(vpF._13, vpF._23, vpF._33, vpF._43);
+    // Far
+    frustum[5] = DirectX::XMFLOAT4(vpF._14 - vpF._13, vpF._24 - vpF._23, vpF._34 - vpF._33, vpF._44 - vpF._43);
+
+    for (int i = 0; i < 6; i++) {
+        float len = sqrtf(frustum[i].x * frustum[i].x + frustum[i].y * frustum[i].y + frustum[i].z * frustum[i].z);
+        if (len > 0.0f) {
+            frustum[i].x /= len; frustum[i].y /= len; frustum[i].z /= len; frustum[i].w /= len;
+        }
+    }
+
+    // Frustum culling
+    VisId visIds[MaxInst] = {};
+    int visCount = 0;
+    for (int i = 0; i < NumInst; i++) {
+        bool inside = true;
+        for (int pi = 0; pi < 6; pi++) {
+            float px = frustum[pi].x >= 0 ? bbMaxs[i].x : bbMins[i].x;
+            float py = frustum[pi].y >= 0 ? bbMaxs[i].y : bbMins[i].y;
+            float pz = frustum[pi].z >= 0 ? bbMaxs[i].z : bbMins[i].z;
+            float d = frustum[pi].x * px + frustum[pi].y * py + frustum[pi].z * pz + frustum[pi].w;
+            if (d < 0.0f) { inside = false; break; }
+        }
+        if (inside) {
+            visIds[visCount].x = (UINT)i;
+            visCount++;
+        }
+    }
+
+    m_context->UpdateSubresource(m_geomBufferInstVis.Get(), 0, nullptr, visIds, 0, 0);
 
     {
         D3D11_MAPPED_SUBRESOURCE sub;
@@ -959,7 +1048,7 @@ void Dx11App::Render()
 
     ID3D11SamplerState* samplers[] = { m_sampler.Get() };
 
-    // Opaque pass
+    if (visCount > 0)
     {
         m_context->OMSetDepthStencilState(m_opaqueDepthState.Get(), 0);
         m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
@@ -976,13 +1065,15 @@ void Dx11App::Render()
         ID3D11ShaderResourceView* cubeSRVs[] = { m_textureView.Get(), m_normalMapView.Get() };
         m_context->PSSetShaderResources(0, 2, cubeSRVs);
 
-        ID3D11Buffer* cubeCBs1[] = { m_geomBuffer.Get(), m_sceneBuffer.Get() };
-        m_context->VSSetConstantBuffers(0, 2, cubeCBs1);
-        m_context->PSSetConstantBuffers(0, 2, cubeCBs1);
-        m_context->DrawIndexed(36, 0, 0);
+        ID3D11Buffer* vsCBs[] = { m_sceneBuffer.Get(), m_geomBufferInst.Get(), m_geomBufferInstVis.Get() };
+        m_context->VSSetConstantBuffers(0, 3, vsCBs);
+        ID3D11Buffer* psCBs[] = { m_sceneBuffer.Get(), m_geomBufferInst.Get() };
+        m_context->PSSetConstantBuffers(0, 2, psCBs);
+
+        m_context->DrawIndexedInstanced(36, (UINT)visCount, 0, 0, 0);
     }
 
-    // Skybox pass
+    // Skybox
     {
         m_context->OMSetDepthStencilState(m_skyboxDSS.Get(), 0);
         m_context->IASetIndexBuffer(m_skyboxIB.Get(), DXGI_FORMAT_R16_UINT, 0);
@@ -1019,7 +1110,6 @@ void Dx11App::Cleanup()
     m_transIB.Reset();
     m_transVB.Reset();
     m_opaqueDepthState.Reset();
-    m_geomBuffer2.Reset();
     m_skyboxDSS.Reset();
     m_cubemapView.Reset();
     m_cubemapTexture.Reset();
@@ -1039,7 +1129,8 @@ void Dx11App::Cleanup()
     m_pixelShader.Reset();
     m_vertexShader.Reset();
     m_sceneBuffer.Reset();
-    m_geomBuffer.Reset();
+    m_geomBufferInstVis.Reset();
+    m_geomBufferInst.Reset();
     m_indexBuffer.Reset();
     m_vertexBuffer.Reset();
     m_dsv.Reset();

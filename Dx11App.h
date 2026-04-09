@@ -9,9 +9,17 @@ struct Light {
     DirectX::XMFLOAT4 color;
 };
 
-struct GeomBuffer {
+static const int MaxInst = 100;
+
+struct GeomBufferInst {
     DirectX::XMMATRIX model;
-    DirectX::XMFLOAT4 shine;
+    DirectX::XMMATRIX norm;
+    DirectX::XMFLOAT4 shineSpeedTexIdNM;  // x=shininess, y=speed, z=texId, w=hasNormalMap
+    DirectX::XMFLOAT4 posAngle;  // xyz=position, w=current angle
+};
+
+struct VisId {
+    UINT x, y, z, w;
 };
 
 struct SceneBuffer {
@@ -61,7 +69,8 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_vertexBuffer;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_indexBuffer;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBuffer;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBufferInst;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBufferInstVis;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
@@ -80,7 +89,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_cubemapView;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_skyboxDSS;
 
-    Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBuffer2;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_opaqueDepthState;
 
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_transVB;

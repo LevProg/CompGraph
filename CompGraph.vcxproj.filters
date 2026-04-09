@@ -27,4 +27,12 @@
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="triangle.vs" />
+    <None Include="triangle.ps" />
+    <None Include="cube.vs" />
+    <None Include="cube.ps" />
+    <None Include="skybox.vs" />
+    <None Include="skybox.ps" />
+  </ItemGroup>
 </Project>
