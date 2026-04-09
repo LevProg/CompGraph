@@ -56,6 +56,7 @@ private:
     bool InitGeometry();
     bool InitSkybox();
     bool InitTransparent();
+    bool InitPostProcess();
     bool CompileShader(const std::wstring& path, const std::string& entryPoint,
                        const std::string& target, ID3DBlob** ppCode);
 
@@ -103,6 +104,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_sceneBuffer;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> m_sampler;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterizerState;
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> m_colorBuffer;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_colorBufferRTV;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_colorBufferSRV;
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_postVS;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_postPS;
 
     D3D11_VIEWPORT m_viewport{};
     int m_width = 0;

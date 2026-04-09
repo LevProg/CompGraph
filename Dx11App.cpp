@@ -735,6 +735,40 @@ bool Dx11App::InitTransparent()
     return true;
 }
 
+bool Dx11App::InitPostProcess()
+{
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
+
+    ID3DBlob* pVSCode = nullptr;
+    if (!CompileShader(dir + L"postprocess.vs", "vs", "vs_5_0", &pVSCode))
+        return false;
+
+    if (FAILED(m_device->CreateVertexShader(pVSCode->GetBufferPointer(),
+        pVSCode->GetBufferSize(), nullptr, m_postVS.GetAddressOf())))
+    {
+        pVSCode->Release();
+        return false;
+    }
+    pVSCode->Release();
+
+    ID3DBlob* pPSCode = nullptr;
+    if (!CompileShader(dir + L"postprocess.ps", "ps", "ps_5_0", &pPSCode))
+        return false;
+
+    if (FAILED(m_device->CreatePixelShader(pPSCode->GetBufferPointer(),
+        pPSCode->GetBufferSize(), nullptr, m_postPS.GetAddressOf())))
+    {
+        pPSCode->Release();
+        return false;
+    }
+    pPSCode->Release();
+
+    return true;
+}
+
 
 bool Dx11App::Init(HWND hwnd, int width, int height)
 {
@@ -836,6 +870,9 @@ bool Dx11App::Init(HWND hwnd, int width, int height)
     if (!InitTransparent())
         return false;
 
+    if (!InitPostProcess())
+        return false;
+
     return true;
 }
 
@@ -858,11 +895,27 @@ void Dx11App::CreateRenderTarget()
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
         m_device->CreateTexture2D(&depthDesc, nullptr, m_depthTexture.GetAddressOf());
         m_device->CreateDepthStencilView(m_depthTexture.Get(), nullptr, m_dsv.GetAddressOf());
+
+        D3D11_TEXTURE2D_DESC colorDesc = {};
+        colorDesc.Width = m_width;
+        colorDesc.Height = m_height;
+        colorDesc.MipLevels = 1;
+        colorDesc.ArraySize = 1;
+        colorDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        colorDesc.SampleDesc.Count = 1;
+        colorDesc.Usage = D3D11_USAGE_DEFAULT;
+        colorDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        m_device->CreateTexture2D(&colorDesc, nullptr, m_colorBuffer.GetAddressOf());
+        m_device->CreateRenderTargetView(m_colorBuffer.Get(), nullptr, m_colorBufferRTV.GetAddressOf());
+        m_device->CreateShaderResourceView(m_colorBuffer.Get(), nullptr, m_colorBufferSRV.GetAddressOf());
     }
 }
 
 void Dx11App::ReleaseRenderTarget()
 {
+    m_colorBufferSRV.Reset();
+    m_colorBufferRTV.Reset();
+    m_colorBuffer.Reset();
     m_dsv.Reset();
     m_depthTexture.Reset();
     m_rtv.Reset();
@@ -1036,11 +1089,11 @@ void Dx11App::Render()
 
     m_context->ClearState();
 
-    ID3D11RenderTargetView* views[] = { m_rtv.Get() };
+    ID3D11RenderTargetView* views[] = { m_colorBufferRTV.Get() };
     m_context->OMSetRenderTargets(1, views, m_dsv.Get());
 
     const float clearColor[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
-    m_context->ClearRenderTargetView(m_rtv.Get(), clearColor);
+    m_context->ClearRenderTargetView(m_colorBufferRTV.Get(), clearColor);
     m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
 
     m_context->RSSetViewports(1, &m_viewport);
@@ -1096,11 +1149,41 @@ void Dx11App::Render()
         m_context->DrawIndexed(m_skyboxIndexCount, 0, 0);
     }
 
+    // Postprocess pass: render to backbuffer with sepia filter
+    {
+        m_context->ClearState();
+
+        ID3D11RenderTargetView* ppViews[] = { m_rtv.Get() };
+        m_context->OMSetRenderTargets(1, ppViews, nullptr);
+        m_context->RSSetViewports(1, &m_viewport);
+
+        m_context->OMSetDepthStencilState(nullptr, 0);
+        m_context->RSSetState(nullptr);
+        m_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        m_context->IASetInputLayout(nullptr);
+        m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_context->VSSetShader(m_postVS.Get(), nullptr, 0);
+        m_context->PSSetShader(m_postPS.Get(), nullptr, 0);
+
+        ID3D11SamplerState* ppSamplers[] = { m_sampler.Get() };
+        m_context->PSSetSamplers(0, 1, ppSamplers);
+
+        ID3D11ShaderResourceView* ppSRVs[] = { m_colorBufferSRV.Get() };
+        m_context->PSSetShaderResources(0, 1, ppSRVs);
+
+        m_context->Draw(6, 0);
+    }
+
     m_swapChain->Present(1, 0);
 }
 
 void Dx11App::Cleanup()
 {
+    m_postPS.Reset();
+    m_postVS.Reset();
+    m_colorBufferSRV.Reset();
+    m_colorBufferRTV.Reset();
+    m_colorBuffer.Reset();
     m_transBlendState.Reset();
     m_transDepthState.Reset();
     for (int i = 0; i < 2; i++) m_transGeomBuffer[i].Reset();

@@ -141,6 +141,8 @@
     <None Include="cube.ps" />
     <None Include="skybox.vs" />
     <None Include="skybox.ps" />
+    <None Include="postprocess.vs" />
+    <None Include="postprocess.ps" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <PostBuildEvent>
@@ -150,6 +152,8 @@ xcopy /Y "$(ProjectDir)skybox.vs" "$(OutDir)"
 xcopy /Y "$(ProjectDir)skybox.ps" "$(OutDir)"
 xcopy /Y "$(ProjectDir)transparent.vs" "$(OutDir)"
 xcopy /Y "$(ProjectDir)transparent.ps" "$(OutDir)"
+xcopy /Y "$(ProjectDir)postprocess.vs" "$(OutDir)"
+xcopy /Y "$(ProjectDir)postprocess.ps" "$(OutDir)"
 xcopy /Y "$(ProjectDir)*.dds" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
