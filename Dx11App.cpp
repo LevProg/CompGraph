@@ -278,6 +278,53 @@ bool Dx11App::InitGeometry()
         SetResourceName(m_geomBufferInstVis.Get(), "GeomBufferInstVis");
     }
 
+    // GPU culling buffers
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(CullParams);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_cullParamsBuffer.GetAddressOf())))
+            return false;
+        SetResourceName(m_cullParamsBuffer.Get(), "CullParams");
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = 5 * sizeof(UINT);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        desc.StructureByteStride = sizeof(UINT);
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_indirectArgsSrc.GetAddressOf())))
+            return false;
+        if (FAILED(m_device->CreateUnorderedAccessView(m_indirectArgsSrc.Get(), nullptr, m_indirectArgsUAV.GetAddressOf())))
+            return false;
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = 5 * sizeof(UINT);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = 0;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_indirectArgs.GetAddressOf())))
+            return false;
+    }
+
+    {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = sizeof(VisId) * MaxInst;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        desc.StructureByteStride = sizeof(VisId);
+        if (FAILED(m_device->CreateBuffer(&desc, nullptr, m_visGPU.GetAddressOf())))
+            return false;
+        if (FAILED(m_device->CreateUnorderedAccessView(m_visGPU.Get(), nullptr, m_visGPU_UAV.GetAddressOf())))
+            return false;
+    }
+
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring dir = exePath;
@@ -444,6 +491,19 @@ bool Dx11App::InitGeometry()
     }
     SetResourceName(m_pixelShader.Get(), "PixelShader");
     pPSCode->Release();
+
+    {
+        ID3DBlob* pCSCode = nullptr;
+        if (!CompileShader(dir + L"cull.cs", "cs", "cs_5_0", &pCSCode))
+            return false;
+        if (FAILED(m_device->CreateComputeShader(pCSCode->GetBufferPointer(),
+            pCSCode->GetBufferSize(), nullptr, m_cullCS.GetAddressOf())))
+        {
+            pCSCode->Release();
+            return false;
+        }
+        pCSCode->Release();
+    }
 
     return true;
 }
@@ -1039,26 +1099,6 @@ void Dx11App::Render()
         }
     }
 
-    // Frustum culling
-    VisId visIds[MaxInst] = {};
-    int visCount = 0;
-    for (int i = 0; i < NumInst; i++) {
-        bool inside = true;
-        for (int pi = 0; pi < 6; pi++) {
-            float px = frustum[pi].x >= 0 ? bbMaxs[i].x : bbMins[i].x;
-            float py = frustum[pi].y >= 0 ? bbMaxs[i].y : bbMins[i].y;
-            float pz = frustum[pi].z >= 0 ? bbMaxs[i].z : bbMins[i].z;
-            float d = frustum[pi].x * px + frustum[pi].y * py + frustum[pi].z * pz + frustum[pi].w;
-            if (d < 0.0f) { inside = false; break; }
-        }
-        if (inside) {
-            visIds[visCount].x = (UINT)i;
-            visCount++;
-        }
-    }
-
-    m_context->UpdateSubresource(m_geomBufferInstVis.Get(), 0, nullptr, visIds, 0, 0);
-
     {
         D3D11_MAPPED_SUBRESOURCE sub;
         if (SUCCEEDED(m_context->Map(m_sceneBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &sub)))
@@ -1072,8 +1112,45 @@ void Dx11App::Render()
             sb.lights[1].pos = DirectX::XMFLOAT4(-0.6f, 0.4f, -0.4f, 0.0f);
             sb.lights[1].color = DirectX::XMFLOAT4(1.0f, 1.0f, 2.0f, 0.0f);
             sb.ambientColor = DirectX::XMFLOAT4(0.1f, 0.1f, 0.1f, 1.0f);
+            for (int i = 0; i < 6; i++) sb.frustum[i] = frustum[i];
             m_context->Unmap(m_sceneBuffer.Get(), 0);
         }
+    }
+
+    // GPU frustum culling
+    {
+        CullParams cp = {};
+        cp.numShapes = DirectX::XMUINT4(NumInst, 0, 0, 0);
+        for (int i = 0; i < NumInst; i++) {
+            cp.bbMin[i] = DirectX::XMFLOAT4(bbMins[i].x, bbMins[i].y, bbMins[i].z, 0.0f);
+            cp.bbMax[i] = DirectX::XMFLOAT4(bbMaxs[i].x, bbMaxs[i].y, bbMaxs[i].z, 0.0f);
+        }
+        m_context->UpdateSubresource(m_cullParamsBuffer.Get(), 0, nullptr, &cp, 0, 0);
+
+        struct {
+            UINT IndexCountPerInstance;
+            UINT InstanceCount;
+            UINT StartIndexLocation;
+            INT BaseVertexLocation;
+            UINT StartInstanceLocation;
+        } indirectInit = { 36, 0, 0, 0, 0 };
+        m_context->UpdateSubresource(m_indirectArgsSrc.Get(), 0, nullptr, &indirectInit, 0, 0);
+
+        ID3D11Buffer* csCBs[2] = { m_sceneBuffer.Get(), m_cullParamsBuffer.Get() };
+        m_context->CSSetConstantBuffers(0, 2, csCBs);
+
+        ID3D11UnorderedAccessView* uavs[2] = { m_indirectArgsUAV.Get(), m_visGPU_UAV.Get() };
+        m_context->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+
+        m_context->CSSetShader(m_cullCS.Get(), nullptr, 0);
+        m_context->Dispatch(DivUp((UINT)NumInst, 64u), 1, 1);
+
+        // Unbind UAVs
+        ID3D11UnorderedAccessView* nullUAVs[2] = { nullptr, nullptr };
+        m_context->CSSetUnorderedAccessViews(0, 2, nullUAVs, nullptr);
+
+        m_context->CopyResource(m_geomBufferInstVis.Get(), m_visGPU.Get());
+        m_context->CopyResource(m_indirectArgs.Get(), m_indirectArgsSrc.Get());
     }
 
     {
@@ -1101,7 +1178,6 @@ void Dx11App::Render()
 
     ID3D11SamplerState* samplers[] = { m_sampler.Get() };
 
-    if (visCount > 0)
     {
         m_context->OMSetDepthStencilState(m_opaqueDepthState.Get(), 0);
         m_context->IASetIndexBuffer(m_indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
@@ -1123,7 +1199,7 @@ void Dx11App::Render()
         ID3D11Buffer* psCBs[] = { m_sceneBuffer.Get(), m_geomBufferInst.Get() };
         m_context->PSSetConstantBuffers(0, 2, psCBs);
 
-        m_context->DrawIndexedInstanced(36, (UINT)visCount, 0, 0, 0);
+        m_context->DrawIndexedInstancedIndirect(m_indirectArgs.Get(), 0);
     }
 
     // Skybox
@@ -1212,6 +1288,13 @@ void Dx11App::Cleanup()
     m_pixelShader.Reset();
     m_vertexShader.Reset();
     m_sceneBuffer.Reset();
+    m_visGPU_UAV.Reset();
+    m_visGPU.Reset();
+    m_indirectArgs.Reset();
+    m_indirectArgsUAV.Reset();
+    m_indirectArgsSrc.Reset();
+    m_cullParamsBuffer.Reset();
+    m_cullCS.Reset();
     m_geomBufferInstVis.Reset();
     m_geomBufferInst.Reset();
     m_indexBuffer.Reset();
