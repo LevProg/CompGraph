@@ -869,7 +869,19 @@ bool Dx11App::Init(HWND hwnd, int width, int height)
     QueryPerformanceFrequency(&m_freq);
     QueryPerformanceCounter(&m_startTime);
 
+    m_hwnd = hwnd;
+
     OnResize(width, height);
+
+    {
+        D3D11_QUERY_DESC qDesc = {};
+        qDesc.Query = D3D11_QUERY_PIPELINE_STATISTICS;
+        qDesc.MiscFlags = 0;
+        for (int i = 0; i < QueryCount; i++) {
+            if (FAILED(m_device->CreateQuery(&qDesc, m_queries[i].GetAddressOf())))
+                return false;
+        }
+    }
 
     {
         D3D11_BUFFER_DESC desc = {};
@@ -1199,8 +1211,13 @@ void Dx11App::Render()
         ID3D11Buffer* psCBs[] = { m_sceneBuffer.Get(), m_geomBufferInst.Get() };
         m_context->PSSetConstantBuffers(0, 2, psCBs);
 
+        m_context->Begin(m_queries[m_curFrame % QueryCount].Get());
         m_context->DrawIndexedInstancedIndirect(m_indirectArgs.Get(), 0);
+        m_context->End(m_queries[m_curFrame % QueryCount].Get());
+        ++m_curFrame;
     }
+
+    ReadQueries();
 
     // Skybox
     {
@@ -1250,11 +1267,37 @@ void Dx11App::Render()
         m_context->Draw(6, 0);
     }
 
+    {
+        wchar_t title[128];
+        swprintf_s(title, L"App - GPU visible instances: %d", m_gpuVisibleInstances);
+        SetWindowTextW(m_hwnd, title);
+    }
+
     m_swapChain->Present(1, 0);
+}
+
+void Dx11App::ReadQueries()
+{
+    while (m_lastCompletedFrame < m_curFrame)
+    {
+        int idx = m_lastCompletedFrame % QueryCount;
+        D3D11_QUERY_DATA_PIPELINE_STATISTICS stats = {};
+        HRESULT hr = m_context->GetData(m_queries[idx].Get(), &stats, sizeof(stats), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+        if (hr == S_OK)
+        {
+            m_gpuVisibleInstances = (int)(stats.IAPrimitives / 12);
+            ++m_lastCompletedFrame;
+        }
+        else
+        {
+            break;
+        }
+    }
 }
 
 void Dx11App::Cleanup()
 {
+    for (int i = 0; i < QueryCount; i++) m_queries[i].Reset();
     m_postPS.Reset();
     m_postVS.Reset();
     m_colorBufferSRV.Reset();
