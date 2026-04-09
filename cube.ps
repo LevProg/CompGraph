@@ -1,4 +1,4 @@
-Texture2D colorTexture : register(t0);
+Texture2DArray colorTexture : register(t0);
 Texture2D normalMapTexture : register(t1);
 SamplerState colorSampler : register(s0);
 
@@ -7,17 +7,23 @@ struct Light {
     float4 color;
 };
 
-cbuffer GeomBuffer : register(b0) {
+struct GeomBuffer {
     float4x4 model;
-    float4 shine;
+    float4x4 norm;
+    float4 shineSpeedTexIdNM;
+    float4 posAngle;
 };
 
-cbuffer SceneBuffer : register(b1) {
+cbuffer SceneBuffer : register(b0) {
     float4x4 vp;
     float4 cameraPos;
     int4 lightCount;
     Light lights[10];
     float4 ambientColor;
+};
+
+cbuffer GeomBufferInst : register(b1) {
+    GeomBuffer geomBuffer[100];
 };
 
 struct VSOutput {
@@ -26,17 +32,31 @@ struct VSOutput {
     float3 tang : TANGENT;
     float3 norm : NORMAL;
     float2 uv : TEXCOORD;
+    nointerpolation uint instanceId : INST_ID;
 };
 
 float4 ps(VSOutput pixel) : SV_Target0 {
-    float3 color = colorTexture.Sample(colorSampler, pixel.uv).xyz;
+    uint idx = pixel.instanceId;
+    uint flags = asuint(geomBuffer[idx].shineSpeedTexIdNM.w);
 
-    float3 binorm = normalize(cross(pixel.norm, pixel.tang));
-    float3 localNorm = normalMapTexture.Sample(colorSampler, pixel.uv).xyz * 2.0 - float3(1.0, 1.0, 1.0);
-    float3 normal = localNorm.x * normalize(pixel.tang) +
-                    localNorm.y * binorm +
-                    localNorm.z * normalize(pixel.norm);
-    normal = normalize(normal);
+    float3 color = colorTexture.Sample(
+        colorSampler,
+        float3(pixel.uv, geomBuffer[idx].shineSpeedTexIdNM.z)
+    ).xyz;
+
+    float3 normal = float3(0, 0, 0);
+
+    if (flags == 1) {
+        float3 binorm = normalize(cross(pixel.norm, pixel.tang));
+        float3 localNorm = normalMapTexture.Sample(colorSampler, pixel.uv).xyz * 2.0 - float3(1.0, 1.0, 1.0);
+        normal = localNorm.x * normalize(pixel.tang) +
+                 localNorm.y * binorm +
+                 localNorm.z * normalize(pixel.norm);
+        normal = normalize(normal);
+    }
+    else {
+        normal = normalize(pixel.norm);
+    }
 
     float3 finalColor = ambientColor.xyz * color;
 
@@ -50,7 +70,8 @@ float4 ps(VSOutput pixel) : SV_Target0 {
 
         float3 viewDir = normalize(cameraPos.xyz - pixel.worldPos.xyz);
         float3 reflectDir = reflect(-lightDir, normal);
-        float spec = shine.x > 0 ? pow(max(dot(viewDir, reflectDir), 0.0), shine.x) : 0.0;
+        float shininess = geomBuffer[idx].shineSpeedTexIdNM.x;
+        float spec = shininess > 0 ? pow(max(dot(viewDir, reflectDir), 0.0), shininess) : 0.0;
         finalColor += color * spec * atten * lights[i].color.xyz;
     }
 
