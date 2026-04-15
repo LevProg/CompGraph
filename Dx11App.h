@@ -28,6 +28,13 @@ struct SceneBuffer {
     DirectX::XMINT4 lightCount;
     Light lights[10];
     DirectX::XMFLOAT4 ambientColor;
+    DirectX::XMFLOAT4 frustum[6];
+};
+
+struct CullParams {
+    DirectX::XMUINT4 numShapes;
+    DirectX::XMFLOAT4 bbMin[MaxInst];
+    DirectX::XMFLOAT4 bbMax[MaxInst];
 };
 
 struct SkyboxGeomBuffer {
@@ -57,6 +64,7 @@ private:
     bool InitSkybox();
     bool InitTransparent();
     bool InitPostProcess();
+    void ReadQueries();
     bool CompileShader(const std::wstring& path, const std::string& entryPoint,
                        const std::string& target, ID3DBlob** ppCode);
 
@@ -72,6 +80,14 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_indexBuffer;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBufferInst;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_geomBufferInstVis;
+
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader> m_cullCS;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_cullParamsBuffer;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_indirectArgsSrc;
+    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> m_indirectArgsUAV;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_indirectArgs;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_visGPU;
+    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> m_visGPU_UAV;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
@@ -110,6 +126,13 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_colorBufferSRV;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_postVS;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_postPS;
+
+    static const int QueryCount = 10;
+    Microsoft::WRL::ComPtr<ID3D11Query> m_queries[QueryCount];
+    UINT m_curFrame = 0;
+    UINT m_lastCompletedFrame = 0;
+    int m_gpuVisibleInstances = 0;
+    HWND m_hwnd = nullptr;
 
     D3D11_VIEWPORT m_viewport{};
     int m_width = 0;

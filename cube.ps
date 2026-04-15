@@ -20,6 +20,7 @@ cbuffer SceneBuffer : register(b0) {
     int4 lightCount;
     Light lights[10];
     float4 ambientColor;
+    float4 frustum[6];
 };
 
 cbuffer GeomBufferInst : register(b1) {
